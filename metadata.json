@@ -1,0 +1,8 @@
+{
+  "name": "PocketProof",
+  "description": "AI-powered medical bill auditor and patient advocacy platform. Detects billing errors and matches financial aid in seconds.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
