@@ -4,11 +4,14 @@ export enum AppView {
   UPLOAD = 'UPLOAD',
   PROCESSING = 'PROCESSING',
   RESULTS = 'RESULTS',
+  PATIENT_LOGIN = 'PATIENT_LOGIN',
   PATIENT_DASHBOARD = 'PATIENT_DASHBOARD',
   ADVOCATE_LANDING = 'ADVOCATE_LANDING',
   ADVOCATE_LOGIN = 'ADVOCATE_LOGIN',
   ADVOCATE_DASHBOARD = 'ADVOCATE_DASHBOARD',
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
+  COMPLIANCE = 'COMPLIANCE',
+  SUPPORT = 'SUPPORT',
 }
 
 export type LeadSource = 'Platform' | 'Manual';
@@ -18,7 +21,7 @@ export interface BillError {
   code: string;
   description: string;
   amount: number;
-  marketPrice: number; // National Fair Market average for comparison
+  marketPrice: number;
   reason: string;
   plainEnglishExplanation: string; 
   regulatoryCitation: string;
@@ -52,7 +55,8 @@ export interface AnalysisResult {
   hospitalName: string;
   extractedTextSnippet?: string;
   patientState?: string;
-  priorityLevel: 'High' | 'Medium' | 'Low'; // Priority for advocacy matching
+  zipCode?: string;
+  priorityLevel: 'High' | 'Medium' | 'Low';
   
   isSummaryBill: boolean; 
   accuracyScore: number; 
@@ -83,6 +87,7 @@ export interface ZohoLead {
   createdAt: string;
   hasInsurance: boolean;
   incomeLevel?: string;
+  hospitalName?: string;
 }
 
 export interface AdvocateViewLead extends ZohoLead {

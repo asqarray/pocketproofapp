@@ -13,28 +13,24 @@ const getEnv = (key: string): string => {
 };
 
 /**
- * Robust PHI Masking Utility
- * Scrubs direct identifiers before they hit the AI logic.
+ * INSTITUTIONAL-GRADE PHI Masking
+ * Sanitizes data before AI transmission.
  */
 export const maskPHI = (text: string): string => {
   return text
-    // Redact SSN
-    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[SSN REDACTED]")
-    // Redact Potential Phone Numbers
-    .replace(/\b(\+?\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g, "[PHONE REDACTED]")
-    // Redact Potential Names (approximation: Capitalized pairs)
+    .replace(/\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/g, "[SSN_REDACTED]")
+    .replace(/\b(\+?\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g, "[PHONE_REDACTED]")
+    .replace(/\b(0[1-9]|1[0-2])[\/.-](0[1-9]|[12][0-9]|3[01])[\/.-](19|20)\d{2}\b/g, "[DOB_REDACTED]")
+    .replace(/\b[A-Z]{1,3}\d{7,12}\b/g, "[POLICY_ID_REDACTED]")
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, "[EMAIL_REDACTED]")
     .replace(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g, (match, p1, p2) => {
-        const skip = ["Hospital", "Clinic", "Center", "Medical", "Saint", "City", "Health", "Surgery", "Emergency"];
-        if (skip.includes(p1) || skip.includes(p2)) return match;
-        return "[NAME REDACTED]";
-    })
-    // Redact Member IDs
-    .replace(/\b\d{8,15}\b/g, "[ID REDACTED]");
+        const medicalKeywords = ["Hospital", "Clinic", "Center", "Medical", "Saint", "City", "Health", "Surgery", "Emergency", "General", "Memorial", "Street", "Avenue", "Suite", "Doctor", "Dr.", "Nurse", "RN", "MD", "Unit", "Level"];
+        if (medicalKeywords.some(kw => match.includes(kw))) return match;
+        return "[NAME_REDACTED]";
+    });
 };
 
-const WEBHOOK_URL = getEnv('NEXT_PUBLIC_ZOHO_WEBHOOK_URL'); 
 const FIREBASE_API_KEY = getEnv('NEXT_PUBLIC_FIREBASE_API_KEY');
-
 let db: any = null;
 if (FIREBASE_API_KEY) {
     try {
@@ -51,9 +47,21 @@ if (FIREBASE_API_KEY) {
     } catch (e) {}
 }
 
+export const checkSystemIntegrity = async () => {
+    const hasApiKey = !!process.env.API_KEY && process.env.API_KEY.length > 10;
+    return {
+        gemini: hasApiKey,
+        firebase: !!db,
+        stripe: true,
+        env: hasApiKey ? "ACTIVE_TEST_NODE" : "MISSING_CONFIGURATION",
+        timestamp: new Date().toISOString()
+    };
+};
+
 const DB_KEYS = {
     LEADS: 'pocketproof_db_leads_v1',
     BILLS: 'pocketproof_db_bills_v1',
+    FEEDBACK: 'pocketproof_db_feedback_v1',
     PATIENT_SESSION: 'pocketproof_my_bills'
 };
 
@@ -75,6 +83,16 @@ export const saveBillToPatientSession = (billId: string) => {
     }
 };
 
+export const saveUserFeedback = async (billId: string, type: 'PATIENT' | 'ADVOCATE', rating: number, comment: string) => {
+    const feedback = { billId, type, rating, comment, createdAt: new Date().toISOString() };
+    if (db) {
+        try { await addDoc(collection(db, "feedback"), feedback); } catch(e) {}
+    } else {
+        const current = safeJsonParse(DB_KEYS.FEEDBACK, []);
+        localStorage.setItem(DB_KEYS.FEEDBACK, JSON.stringify([...current, feedback]));
+    }
+};
+
 export const getPatientBills = async (): Promise<AnalysisResult[]> => {
     const billIds = safeJsonParse(DB_KEYS.PATIENT_SESSION, []);
     const bills: AnalysisResult[] = [];
@@ -82,7 +100,7 @@ export const getPatientBills = async (): Promise<AnalysisResult[]> => {
         const details = await getBillDetails(id);
         if (details) bills.push({ ...details, billId: id });
     }
-    return bills;
+    return bills.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
 };
 
 export const sendPhiToZoho = async (data: any): Promise<string> => {
@@ -97,13 +115,14 @@ export const sendPhiToZoho = async (data: any): Promise<string> => {
         phone: data.phone,
         billValue: data.totalValue,
         condition: data.condition || 'Forensic Audit',
-        state: 'US', 
+        state: data.state || 'US', 
         status: 'New',
         createdAt: new Date().toISOString(),
         billAvailable: true,
         hasInsurance: !!data.hasInsurance,
         incomeLevel: data.incomeLevel,
-        priorityLevel: data.priorityLevel
+        priorityLevel: data.priorityLevel,
+        hospitalName: data.hospitalName
     };
 
     if (db) {
@@ -112,11 +131,6 @@ export const sendPhiToZoho = async (data: any): Promise<string> => {
         const current = safeJsonParse(DB_KEYS.LEADS, []);
         localStorage.setItem(DB_KEYS.LEADS, JSON.stringify([newLead, ...current]));
     }
-    
-    if (WEBHOOK_URL) {
-        fetch(WEBHOOK_URL, { method: 'POST', body: JSON.stringify(newLead), mode: 'no-cors' }).catch(() => {});
-    }
-
     return leadId;
 };
 
@@ -181,15 +195,16 @@ export const getGlobalPlatformStats = async (): Promise<PlatformStats> => {
     
     const hospitalAgg: Record<string, { count: number, value: number }> = {};
     allBills.forEach(b => {
-        if (!hospitalAgg[b.hospitalName]) hospitalAgg[b.hospitalName] = { count: 0, value: 0 };
-        hospitalAgg[b.hospitalName].count++;
-        hospitalAgg[b.hospitalName].value += (b.totalErrors || 0);
+        const name = b.hospitalName || "Unverified Provider";
+        if (!hospitalAgg[name]) hospitalAgg[name] = { count: 0, value: 0 };
+        hospitalAgg[name].count++;
+        hospitalAgg[name].value += (b.totalErrors || 0) + (b.totalAid || 0);
     });
 
     const topOffenders = Object.entries(hospitalAgg)
         .map(([name, data]) => ({ name, violations: data.count, value: data.value }))
         .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
+        .slice(0, 10);
 
     return {
         totalSavingsFound: totalSavings,
@@ -210,5 +225,32 @@ export const bookAdvocateMeeting = async (userId: string): Promise<boolean> => {
 export const updateCaseStatus = async (leadId: string, status: string): Promise<void> => {
     if (db) {
         try { await updateDoc(doc(db, "leads", leadId), { status }); } catch(e) {}
+    } else {
+        const leads = safeJsonParse(DB_KEYS.LEADS, []);
+        const updated = leads.map((l: AdvocateViewLead) => l.id === leadId ? { ...l, status } : l);
+        localStorage.setItem(DB_KEYS.LEADS, JSON.stringify(updated));
+    }
+};
+
+/**
+ * STRIPE CHECKOUT BRIDGE
+ * Initiates the $39 DIY Dispute Package flow.
+ */
+export const initiateStripeCheckout = async (billId: string) => {
+    try {
+        const response = await fetch('/api/create-checkout-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount: 3900,
+                description: `PocketProof DIY Evidence Pack (Ref: ${billId})`,
+                successUrl: `${window.location.origin}/#dashboard/portal?payment=success`,
+                cancelUrl: `${window.location.origin}/#report?payment=cancelled`
+            })
+        });
+        const session = await response.json();
+        if (session.url) window.location.href = session.url;
+    } catch (e) {
+        alert("Payment gateway latency. Please try again or use the Advocate path.");
     }
 };

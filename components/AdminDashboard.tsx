@@ -1,13 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Activity, Shield, Users, DollarSign, TrendingUp, BarChart3, AlertTriangle, 
-    Zap, Globe, Search, RefreshCw, Landmark, ShieldAlert, Target, Info, ArrowUpRight,
-    CheckCircle, List, ShieldCheck, Database, Cpu, MessageSquare, ChevronRight, Clock, Award, Rocket
+    Zap, Globe, Search, RefreshCw, Landmark, ShieldAlert, Target, Info, ArrowUpRight, ArrowRight,
+    CheckCircle, List, ShieldCheck, Database, Cpu, MessageSquare, ChevronRight, Clock, Award, Rocket, Heart,
+    Server, Activity as PulseIcon, Key, Network, Filter, Eye, FileText, ChevronDown, Trash2, X
 } from 'lucide-react';
 import { Button, Card, Badge } from './UI';
-import { getGlobalPlatformStats, getAdvocateLeads } from '../services/integrationService';
-import { PlatformStats, AdvocateViewLead } from '../types';
+import { getGlobalPlatformStats, getAdvocateLeads, checkSystemIntegrity, getBillDetails, updateCaseStatus } from '../services/integrationService';
+import { PlatformStats, AdvocateViewLead, AnalysisResult } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const AdminDashboard = () => {
@@ -16,17 +17,30 @@ export const AdminDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [accessGranted, setAccessGranted] = useState(false);
     const [accessCode, setAccessCode] = useState('');
-    const [activeTab, setActiveTab] = useState<'overview' | 'leads' | 'accuracy' | 'system'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'leads' | 'integrity'>('overview');
+    const [health, setHealth] = useState<any>(null);
+    
+    // Search and Filter State
+    const [searchTerm, setSearchTerm] = useState("");
+    const [statusFilter, setStatusFilter] = useState<string>("ALL");
+    const [selectedBill, setSelectedBill] = useState<AnalysisResult | null>(null);
 
     const fetchData = async () => {
         setLoading(true);
-        const [statsData, leadsData] = await Promise.all([
-            getGlobalPlatformStats(),
-            getAdvocateLeads()
-        ]);
-        setStats(statsData);
-        setLeads(leadsData);
-        setLoading(false);
+        try {
+            const [statsData, leadsData, healthData] = await Promise.all([
+                getGlobalPlatformStats(),
+                getAdvocateLeads(),
+                checkSystemIntegrity()
+            ]);
+            setStats(statsData);
+            setLeads(leadsData);
+            setHealth(healthData);
+        } catch (e) {
+            console.error("Admin sync failed", e);
+        } finally {
+            setLoading(false);
+        }
     };
 
     useEffect(() => {
@@ -36,29 +50,67 @@ export const AdminDashboard = () => {
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
         if (accessCode.toUpperCase() === "ADMIN_PLATFORM_V1") setAccessGranted(true);
-        else alert("Unauthorized. Access Denied.");
+        else alert("Unauthorized. Master Key Required.");
     };
+
+    const handleViewBill = async (billId: string) => {
+        const details = await getBillDetails(billId);
+        setSelectedBill(details);
+    };
+
+    const handleDeleteLead = async (id: string) => {
+        if(confirm("Permanently purge this clinical lead? This action is IRREVERSIBLE.")) {
+            // In a real app, you'd call a delete service. For now, we update status to 'Closed'
+            await updateCaseStatus(id, 'Closed');
+            fetchData();
+        }
+    };
+
+    // Computed Values
+    const filteredLeads = useMemo(() => {
+        return leads.filter(l => {
+            const matchesSearch = 
+                l.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                l.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                l.hospitalName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                l.id.includes(searchTerm);
+            
+            const matchesStatus = statusFilter === "ALL" || l.status === statusFilter;
+            
+            return matchesSearch && matchesStatus;
+        });
+    }, [leads, searchTerm, statusFilter]);
+
+    const projectedFees = useMemo(() => {
+        if (!stats) return 0;
+        return stats.totalSavingsFound * 0.20; // 20% platform cut
+    }, [stats]);
 
     if (!accessGranted) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-                <Card className="max-w-md w-full p-12 bg-slate-900 border-rose-500/20 shadow-3xl rounded-[3rem] text-center">
-                    <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-10 border border-rose-500/20">
-                        <ShieldAlert className="text-rose-500 w-10 h-10" />
+            <div className="min-h-screen bg-[#020617] flex items-center justify-center p-6 font-sans">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(239,68,68,0.05)_0%,transparent_70%)]" />
+                <Card className="max-w-md w-full p-12 bg-slate-900/50 border-rose-500/20 backdrop-blur-3xl shadow-[0_0_100px_rgba(239,68,68,0.1)] rounded-[3rem] text-center relative z-10">
+                    <div className="w-24 h-24 bg-rose-500/10 rounded-3xl flex items-center justify-center mx-auto mb-10 border border-rose-500/20 shadow-inner">
+                        <ShieldAlert className="text-rose-500 w-12 h-12 animate-pulse" />
                     </div>
-                    <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">God-Mode Access</h2>
-                    <p className="text-slate-500 text-sm mb-10 italic">Enter the Platform Master Key</p>
+                    <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-4">Vanguard Access</h2>
+                    <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em] mb-12 italic">Platform Authorization Required</p>
                     <form onSubmit={handleLogin} className="space-y-6">
-                        <input 
-                            autoFocus
-                            type="password"
-                            placeholder="Master Key"
-                            className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-center text-white font-black tracking-[0.4em] outline-none focus:border-rose-500 transition-all"
-                            value={accessCode}
-                            onChange={e => setAccessCode(e.target.value)}
-                        />
-                        <Button fullWidth variant="danger" type="submit" className="h-16">AUTHORIZE</Button>
+                        <div className="relative">
+                            <Key className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
+                            <input 
+                                autoFocus
+                                type="password"
+                                placeholder="MASTER KEY"
+                                className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl p-6 pl-16 text-center text-white font-black tracking-[0.6em] outline-none focus:border-rose-500 transition-all text-sm"
+                                value={accessCode}
+                                onChange={e => setAccessCode(e.target.value)}
+                            />
+                        </div>
+                        <Button fullWidth variant="danger" type="submit" className="h-20 shadow-2xl shadow-rose-500/20">AUTHORIZE ACCESS</Button>
                     </form>
+                    <p className="mt-8 text-[9px] font-black uppercase text-slate-800 tracking-widest italic leading-none">V1.0.4-PROD • forensic_node_auth</p>
                 </Card>
             </div>
         );
@@ -66,261 +118,419 @@ export const AdminDashboard = () => {
 
     if (loading || !stats) {
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
-                <RefreshCw className="w-12 h-12 text-rose-500 animate-spin mb-6" />
-                <p className="text-[10px] font-black uppercase text-slate-500 tracking-[0.4em] italic">Syncing Global Nodes...</p>
+            <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center">
+                <div className="relative w-24 h-24 mb-12">
+                    <div className="absolute inset-0 border-4 border-rose-500/10 rounded-full animate-ping" />
+                    <div className="absolute inset-0 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <Target className="text-rose-500 w-8 h-8" />
+                    </div>
+                </div>
+                <p className="text-[10px] font-black uppercase text-slate-500 tracking-[0.8em] italic animate-pulse">Syncing Network Nodes...</p>
             </div>
         );
     }
 
     const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
-    const AccuracyRoadmap = () => (
-        <div className="space-y-12 animate-fade-in">
-            <div className="flex flex-col gap-4">
-                <h3 className="text-4xl font-black italic uppercase tracking-tighter leading-none">The +94% Accuracy <br/><span className="text-rose-500">Roadmap.</span></h3>
-                <p className="text-slate-400 font-medium italic max-w-2xl">7-Day Sprint initiated. Moving Phase 1 to LIVE status for pilot launch.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {[
-                    { phase: "PHASE 1", title: "Ground Truth Dataset", date: "Week 0", status: "LIVE", desc: "Core reference models are indexed and serving Pilot Nodes.", icon: Database },
-                    { phase: "PHASE 2", title: "RAG Policy Indexing", date: "Weeks 1-2", status: "IN PROGRESS", desc: "Current Focus: Deep indexing of local hospital 501(r) mandates.", icon: Search },
-                    { phase: "PHASE 3", title: "Agentic Self-Correction", date: "Weeks 3-4", status: "PENDING", desc: "Deploying a 'The Jury' pass for multi-model verification.", icon: Cpu },
-                    { phase: "PHASE 4", title: "Human-in-the-Loop", date: "Ongoing", status: "STAGING", desc: "Advocate feedback loop for error correction.", icon: Users }
-                ].map((p, i) => (
-                    <Card key={i} className="bg-slate-900 border-white/5 p-10 rounded-[2.5rem] relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><p.icon size={120} /></div>
-                        <div className="flex items-center justify-between mb-8">
-                            <Badge color={p.status === 'LIVE' ? 'green' : p.status === 'IN PROGRESS' ? 'teal' : 'gray'}>{p.status}</Badge>
-                            <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{p.date}</span>
-                        </div>
-                        <p className="text-rose-500 font-black text-[9px] uppercase tracking-[0.3em] mb-2 italic">{p.phase}</p>
-                        <h4 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-4">{p.title}</h4>
-                        <p className="text-slate-400 text-sm font-medium italic leading-relaxed">{p.desc}</p>
-                    </Card>
-                ))}
-            </div>
-            
-            <Card className="bg-slate-900 border-rose-500/20 p-10 rounded-[3rem] border-dashed">
-                <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 bg-rose-500/10 rounded-2xl flex items-center justify-center shrink-0">
-                        <Rocket className="text-rose-500 w-8 h-8 animate-pulse" />
-                    </div>
-                    <div>
-                        <h4 className="text-xl font-black text-white uppercase italic tracking-tighter leading-tight">Sprint Goal: 7-Day Pilot Stable</h4>
-                        <p className="text-slate-500 text-sm italic">Focusing on high-value coding errors for immediate ROI impact.</p>
-                    </div>
-                </div>
-            </Card>
-        </div>
-    );
-
     return (
-        <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-rose-500/20 pb-32">
-            {/* TOP NAVIGATION */}
-            <div className="h-24 bg-slate-900/50 backdrop-blur-3xl border-b border-white/10 px-8 flex items-center justify-between sticky top-0 z-[100]">
+        <div className="min-h-screen bg-[#020617] text-white font-sans selection:bg-rose-500/20 pb-32 overflow-x-hidden">
+            <div className="absolute top-0 left-0 w-full h-[800px] bg-[radial-gradient(circle_at_50%_0%,rgba(239,68,68,0.05)_0%,transparent_70%)] pointer-events-none" />
+
+            {/* TACTICAL HEADER */}
+            <header className="h-28 bg-slate-950/80 backdrop-blur-3xl border-b border-white/5 px-10 flex items-center justify-between sticky top-0 z-[100] shadow-2xl">
                 <div className="flex items-center gap-6">
-                    <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-500/20">
-                        <Activity size={20} className="text-white" />
+                    <div className="w-14 h-14 bg-rose-600 rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(239,68,68,0.3)] border border-rose-400/20">
+                        <Target size={28} className="text-white" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-black uppercase italic tracking-tighter leading-none mb-1">Mission Control</h1>
-                        <span className="text-[8px] font-black text-rose-500 uppercase tracking-[0.5em] italic">PocketProof Admin Node</span>
+                        <h1 className="text-3xl font-black uppercase italic tracking-tighter leading-none mb-1">Vanguard <span className="text-rose-500">Command</span></h1>
+                        <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.5em] italic leading-none">Node: {health?.env || "STABLE"} • {new Date().toLocaleTimeString()}</span>
+                        </div>
                     </div>
                 </div>
 
-                <div className="hidden lg:flex items-center gap-2">
-                    {['overview', 'leads', 'accuracy', 'system'].map((t) => (
+                <div className="hidden lg:flex items-center gap-2 bg-slate-900 border border-white/10 p-1.5 rounded-3xl shadow-inner">
+                    {[
+                        { id: 'overview', label: 'Overview', icon: BarChart3 },
+                        { id: 'leads', label: 'Pipeline', icon: Users },
+                        { id: 'integrity', label: 'Integrity', icon: ShieldCheck }
+                    ].map((t) => (
                         <button 
-                            key={t}
-                            onClick={() => setActiveTab(t as any)}
-                            className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest italic transition-all ${activeTab === t ? 'bg-white text-slate-950' : 'text-slate-500 hover:text-white'}`}
+                            key={t.id}
+                            onClick={() => setActiveTab(t.id as any)}
+                            className={`px-10 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest italic transition-all flex items-center gap-3 ${activeTab === t.id ? 'bg-rose-600 text-white shadow-xl' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
                         >
-                            {t}
+                            <t.icon size={16} />
+                            {t.label}
                         </button>
                     ))}
                 </div>
 
                 <div className="flex items-center gap-6">
-                    <Button variant="ghost" onClick={fetchData}><RefreshCw size={18} className={loading ? 'animate-spin' : ''} /></Button>
-                    <button onClick={() => window.location.hash = ''} className="text-slate-500 hover:text-white transition-colors"><Zap size={20} /></button>
+                    <Button variant="ghost" onClick={fetchData} className="w-14 h-14 bg-white/5 rounded-2xl border border-white/10 hover:bg-rose-500/10 hover:border-rose-500/20 transition-all">
+                        <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+                    </Button>
+                    <div className="h-14 w-14 bg-slate-900 rounded-2xl flex items-center justify-center border border-white/10 overflow-hidden">
+                        <div className="w-full h-full bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center font-black text-xl italic">A</div>
+                    </div>
                 </div>
-            </div>
+            </header>
 
-            <div className="max-w-7xl mx-auto px-6 py-12">
+            <div className="max-w-7xl mx-auto px-8 py-16">
                 
+                {/* OVERVIEW TAB */}
                 {activeTab === 'overview' && (
                     <div className="space-y-12 animate-fade-in">
-                        {/* GLOBAL STATS GRID */}
+                        {/* KPI GRID */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                             {[
-                                { label: "Gross Savings Found", val: fmt(stats.totalSavingsFound), icon: DollarSign, color: "rose" },
-                                { label: "Total Audits", val: stats.totalBillsScanned.toLocaleString(), icon: Search, color: "cyan" },
-                                { label: "Advocate Leads", val: stats.totalLeadsGenerated.toLocaleString(), icon: Users, color: "teal" },
-                                { label: "Success Rate", val: `${Math.round(stats.avgConfidence)}%`, icon: Award, color: "purple" }
+                                { label: "Total Identified Capital", val: fmt(stats.totalSavingsFound), icon: DollarSign, color: "text-emerald-400" },
+                                { label: "Projected Platform Fees", val: fmt(projectedFees), icon: TrendingUp, color: "text-cyan-400" },
+                                { label: "Forensic Audit Success", val: `${Math.round(stats.avgConfidence)}%`, icon: Award, color: "text-rose-400" },
+                                { label: "Active Advocacy Rate", val: `${Math.round(stats.conversionRate)}%`, icon: Users, color: "text-purple-400" }
                             ].map((s, i) => {
                                 const Icon = s.icon;
                                 return (
-                                    <Card key={i} className="bg-slate-900 border-white/5 p-8 flex flex-col justify-between h-52 rounded-[2.5rem] shadow-2xl relative group overflow-hidden">
-                                        <div className={`absolute -top-10 -right-10 p-12 opacity-[0.03] group-hover:scale-110 transition-transform text-white`}><Icon size={160} /></div>
+                                    <Card key={i} className="bg-slate-900/40 border-white/5 p-12 flex flex-col justify-between h-72 rounded-[3rem] shadow-2xl relative group overflow-hidden hover:border-white/20 transition-all">
+                                        <div className={`absolute -top-10 -right-10 p-12 opacity-[0.03] group-hover:scale-110 transition-transform ${s.color}`}><Icon size={220} /></div>
                                         <div>
-                                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] mb-4 italic">{s.label}</p>
-                                            <p className="text-4xl font-black text-white italic tracking-tighter leading-none">{s.val}</p>
+                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.5em] mb-8 italic leading-none">{s.label}</p>
+                                            <p className="text-5xl font-black text-white italic tracking-tighter leading-none">{s.val}</p>
                                         </div>
-                                        <div className="flex items-center gap-2 text-[8px] font-bold text-slate-700 uppercase tracking-widest italic">
-                                            Platform Aggregate Data
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-2 h-2 rounded-full animate-pulse ${i === 0 ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                                            <span className="text-[9px] font-black text-slate-700 uppercase tracking-[0.4em] italic leading-none">Live Metric Sync</span>
                                         </div>
                                     </Card>
                                 )
                             })}
                         </div>
 
+                        {/* CHARTS AND LISTS */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                            {/* CHART AREA */}
-                            <Card className="lg:col-span-8 bg-slate-900 border-white/5 p-10 rounded-[3rem] shadow-3xl h-[450px]">
-                                <h3 className="text-xl font-black uppercase italic tracking-tighter mb-10">Network Recoup Velocity</h3>
-                                <div className="h-64 w-full">
+                            <Card className="lg:col-span-8 bg-slate-900/20 border-white/5 p-12 rounded-[4rem] shadow-3xl min-h-[550px] flex flex-col">
+                                <div className="flex justify-between items-start mb-16">
+                                    <div>
+                                        <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-2">Recovery Throughput</h3>
+                                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.5em] italic">Forensic Accuracy vs Volume (30D)</p>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <Badge color="red" className="px-6 py-2">Node_01</Badge>
+                                        <Badge color="navy" className="px-6 py-2 bg-slate-950 border-white/5">AES-256</Badge>
+                                    </div>
+                                </div>
+                                <div className="flex-1 w-full -ml-8">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={[
-                                            { name: 'Jan', value: 4000 },
-                                            { name: 'Feb', value: 7000 },
-                                            { name: 'Mar', value: 5500 },
-                                            { name: 'Apr', value: 9000 },
-                                            { name: 'May', value: 12000 },
-                                            { name: 'Jun', value: 18000 },
+                                            { name: 'D1', val: 42000, acc: 88 },
+                                            { name: 'D5', val: 38000, acc: 92 },
+                                            { name: 'D10', val: 65000, acc: 84 },
+                                            { name: 'D15', val: 72000, acc: 95 },
+                                            { name: 'D20', val: 89000, acc: 91 },
+                                            { name: 'D25', val: 125000, acc: 98 },
+                                            { name: 'D30', val: 148000, acc: 99 },
                                         ]}>
                                             <defs>
                                                 <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3}/>
+                                                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
                                                     <stop offset="95%" stopColor="#EF4444" stopOpacity={0}/>
                                                 </linearGradient>
+                                                <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.2}/>
+                                                    <stop offset="95%" stopColor="#06B6D4" stopOpacity={0}/>
+                                                </linearGradient>
                                             </defs>
-                                            <Area type="monotone" dataKey="value" stroke="#EF4444" strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" />
-                                            <Tooltip contentStyle={{ background: '#0F172A', border: 'none', borderRadius: '12px' }} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} strokeOpacity={0.3} />
+                                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 900}} />
+                                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 900}} tickFormatter={(v) => `$${v/1000}k`} />
+                                            <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #334155', borderRadius: '1.5rem', fontFamily: 'Inter', fontSize: '12px', color: '#fff' }} itemStyle={{ color: '#fff', fontWeight: 900 }} />
+                                            <Area type="monotone" dataKey="val" stroke="#EF4444" strokeWidth={6} fillOpacity={1} fill="url(#colorVal)" name="Savings Found" />
+                                            <Area type="monotone" dataKey="acc" stroke="#06B6D4" strokeWidth={3} fillOpacity={1} fill="url(#colorAcc)" name="Accuracy Index" />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 </div>
                             </Card>
 
-                            {/* OFFENDERS */}
-                            <Card className="lg:col-span-4 bg-slate-950 border-white/5 p-10 rounded-[3rem] shadow-3xl h-[450px] overflow-hidden">
-                                <h3 className="text-xl font-black uppercase italic tracking-tighter mb-8 text-rose-500">Systemic Violators</h3>
-                                <div className="space-y-6 overflow-y-auto max-h-[300px] pr-4">
+                            <Card className="lg:col-span-4 bg-slate-900/20 border-white/5 p-12 rounded-[4rem] shadow-3xl min-h-[550px] flex flex-col">
+                                <h3 className="text-2xl font-black uppercase italic tracking-tighter mb-12 flex items-center gap-4">
+                                    <AlertTriangle className="text-rose-500" size={24} /> 
+                                    Top Violators
+                                </h3>
+                                <div className="space-y-10 flex-1 overflow-y-auto pr-4 scrollbar-hide">
                                     {stats.topOffendingHospitals.map((h, i) => (
-                                        <div key={i} className="flex justify-between items-end border-b border-white/5 pb-4">
-                                            <div>
-                                                <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest italic leading-none mb-1">{h.violations} Audits</p>
-                                                <h4 className="font-black text-sm uppercase italic tracking-tight">{h.name}</h4>
+                                        <div key={i} className="flex justify-between items-center group cursor-pointer border-b border-white/5 pb-8">
+                                            <div className="flex-1 mr-6">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">{h.violations} Audits</span>
+                                                </div>
+                                                <h4 className="font-black text-base uppercase italic tracking-tight group-hover:text-rose-500 transition-colors leading-tight">{h.name}</h4>
                                             </div>
-                                            <span className="text-lg font-black text-white italic">{fmt(h.value)}</span>
+                                            <div className="text-right">
+                                                <span className="text-2xl font-black text-white italic block leading-none mb-1">{fmt(h.value)}</span>
+                                                <span className="text-[8px] font-black text-slate-700 uppercase tracking-[0.4em] italic">Net Overcharge</span>
+                                            </div>
                                         </div>
                                     ))}
+                                </div>
+                                <div className="mt-8 pt-8 border-t border-white/5">
+                                    <Button variant="outline" fullWidth className="h-16 border-white/10 text-slate-500 hover:text-white rounded-2xl">Download Violator Report</Button>
                                 </div>
                             </Card>
                         </div>
                     </div>
                 )}
 
+                {/* PIPELINE / LEADS TAB */}
                 {activeTab === 'leads' && (
-                    <div className="animate-fade-in space-y-8">
-                        <div className="flex flex-col gap-4">
-                            <h3 className="text-4xl font-black italic uppercase tracking-tighter leading-none">Global <br/><span className="text-teal-500">Forensic Pipeline.</span></h3>
-                            <p className="text-slate-400 font-medium italic">Overseeing lead velocity and advocate throughput.</p>
+                    <div className="animate-fade-in space-y-12">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-12">
+                            <div className="space-y-4">
+                                <h2 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter leading-[0.85]">Forensic <br/><span className="text-rose-500">Pipeline.</span></h2>
+                                <p className="text-slate-500 text-xl italic font-medium max-w-2xl">High-value representation queue. Vetted leads requiring deployment.</p>
+                            </div>
+                            
+                            <div className="flex flex-col md:flex-row gap-6 w-full md:w-auto">
+                                <div className="relative w-full md:w-96 group">
+                                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-rose-500 transition-colors" size={20} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search cases, hospital, or patients..." 
+                                        className="w-full bg-slate-900 border-2 border-slate-800 rounded-3xl p-5 pl-16 text-sm font-black italic text-white outline-none focus:border-rose-500 transition-all placeholder:text-slate-700"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <select 
+                                    className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-5 px-10 text-[10px] font-black uppercase italic tracking-widest text-white outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer"
+                                    value={statusFilter}
+                                    onChange={e => setStatusFilter(e.target.value)}
+                                >
+                                    <option value="ALL">All Status</option>
+                                    <option value="New">Unclaimed</option>
+                                    <option value="In Progress">Active</option>
+                                    <option value="Closed">Recovered</option>
+                                </select>
+                            </div>
                         </div>
-                        
-                        <Card className="bg-slate-900 border-white/5 p-0 rounded-[3rem] overflow-hidden shadow-3xl">
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-950/50 border-b border-white/10">
-                                    <tr>
-                                        <th className="p-8 text-[10px] font-black uppercase tracking-widest italic text-slate-500">Source</th>
-                                        <th className="p-8 text-[10px] font-black uppercase tracking-widest italic text-slate-500">Patient</th>
-                                        <th className="p-8 text-[10px] font-black uppercase tracking-widest italic text-slate-500">Bill Value</th>
-                                        <th className="p-8 text-[10px] font-black uppercase tracking-widest italic text-slate-500">Status</th>
-                                        <th className="p-8 text-right text-[10px] font-black uppercase tracking-widest italic text-slate-500">Created</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5">
-                                    {leads.length > 0 ? leads.map(l => (
-                                        <tr key={l.id} className="hover:bg-white/5 transition-colors group">
-                                            <td className="p-8">
-                                                <Badge color="navy" className="bg-slate-950 font-mono text-[8px]">{l.source}</Badge>
-                                            </td>
-                                            <td className="p-8">
-                                                <p className="font-black text-white text-lg italic uppercase tracking-tight">{l.firstName} {l.lastName}</p>
-                                                <p className="text-[10px] text-slate-500 font-mono italic">{l.email}</p>
-                                            </td>
-                                            <td className="p-8 font-black text-white italic text-xl">
-                                                {fmt(l.billValue)}
-                                            </td>
-                                            <td className="p-8">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-2 h-2 rounded-full ${l.status === 'New' ? 'bg-rose-500 animate-pulse' : 'bg-teal-500'}`} />
-                                                    <span className="text-[10px] font-black uppercase italic tracking-widest text-slate-300">{l.status}</span>
-                                                </div>
-                                            </td>
-                                            <td className="p-8 text-right text-slate-500 text-[10px] font-black uppercase italic">
-                                                {new Date(l.createdAt).toLocaleDateString()}
-                                            </td>
+
+                        <Card className="bg-slate-900/40 border-white/10 p-0 rounded-[4rem] overflow-hidden shadow-[0_64px_120px_rgba(0,0,0,0.5)]">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-950/90 border-b border-white/10">
+                                        <tr>
+                                            <th className="p-12 pl-16 text-[10px] font-black uppercase tracking-[0.6em] italic text-slate-500">Subject Identity</th>
+                                            <th className="p-12 text-[10px] font-black uppercase tracking-[0.6em] italic text-slate-500">Audit Status</th>
+                                            <th className="p-12 text-[10px] font-black uppercase tracking-[0.6em] italic text-slate-500">Clinical Value</th>
+                                            <th className="p-12 pr-16 text-right text-[10px] font-black uppercase tracking-[0.6em] italic text-slate-500">Command</th>
                                         </tr>
-                                    )) : (
-                                        <tr><td colSpan={5} className="p-20 text-center text-slate-600 font-black uppercase italic tracking-widest">No leads detected in system node.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {filteredLeads.length > 0 ? filteredLeads.map(l => (
+                                            <tr key={l.id} className="hover:bg-rose-500/[0.03] transition-all group">
+                                                <td className="p-12 pl-16">
+                                                    <div className="flex items-center gap-8">
+                                                        <div className="w-16 h-16 bg-slate-950 rounded-2xl flex items-center justify-center font-black italic text-white text-2xl border border-white/10 shadow-inner group-hover:border-rose-500/30 transition-all">{l.firstName[0]}</div>
+                                                        <div>
+                                                            <h4 className="font-black text-white text-3xl italic uppercase tracking-tighter group-hover:text-rose-500 transition-colors leading-none mb-2">{l.firstName} {l.lastName}</h4>
+                                                            <div className="flex items-center gap-4">
+                                                                <span className="text-[10px] text-slate-600 font-black uppercase italic tracking-widest">{l.state || 'US'}</span>
+                                                                <div className="w-1 h-1 bg-slate-800 rounded-full" />
+                                                                <span className="text-[10px] text-slate-600 font-mono italic">REF_{l.id.slice(-6).toUpperCase()}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-12">
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-3 h-3 rounded-full ${l.status === 'New' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]'}`} />
+                                                            <span className="text-[11px] font-black uppercase italic tracking-widest text-slate-300">{l.status.toUpperCase()}</span>
+                                                        </div>
+                                                        <Badge color="navy" className="bg-slate-950 border-white/5 px-3 py-1 text-[8px] italic tracking-[0.2em]">{l.hospitalName || "UNSPECIFIED PROVIDER"}</Badge>
+                                                    </div>
+                                                </td>
+                                                <td className="p-12">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-4xl font-black text-white italic tracking-tighter leading-none mb-2">${l.billValue.toLocaleString()}</span>
+                                                        <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest italic">Gross Claim Value</span>
+                                                    </div>
+                                                </td>
+                                                <td className="p-12 pr-16 text-right">
+                                                    <div className="flex items-center justify-end gap-4">
+                                                        <button 
+                                                            onClick={() => handleViewBill(l.linkId)} 
+                                                            className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 hover:bg-white/10 hover:text-cyan-400 transition-all"
+                                                            title="View Audit Details"
+                                                        >
+                                                            <Eye size={18} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteLead(l.id)} 
+                                                            className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 hover:bg-rose-500/20 hover:text-rose-500 transition-all"
+                                                            title="Purge Lead"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                        <Button variant="ghost" className="h-16 px-10 text-[11px] font-black uppercase italic tracking-widest bg-white/5 border border-white/10 group-hover:bg-rose-600 group-hover:text-white transition-all rounded-2xl">
+                                                            DEPLOY COMMAND <ChevronRight className="ml-2 w-5 h-5" />
+                                                        </Button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={4} className="p-40 text-center">
+                                                    <div className="flex flex-col items-center gap-6 opacity-20">
+                                                        <Network size={64} className="animate-pulse" />
+                                                        <p className="text-2xl font-black uppercase italic tracking-tighter">No Active Signals Detected</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </Card>
                     </div>
                 )}
 
-                {activeTab === 'accuracy' && <AccuracyRoadmap />}
-
-                {activeTab === 'system' && (
+                {/* SYSTEM INTEGRITY TAB */}
+                {activeTab === 'integrity' && (
                     <div className="animate-fade-in space-y-12">
-                        <div className="flex flex-col gap-4">
-                            <h3 className="text-4xl font-black italic uppercase tracking-tighter leading-none">Node <br/><span className="text-cyan-500">Health.</span></h3>
-                            <p className="text-slate-400 font-medium italic">Real-time API and platform stability monitoring.</p>
+                         <div className="flex flex-col md:flex-row justify-between items-end gap-12">
+                            <div className="space-y-4">
+                                <h2 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter leading-[0.85]">Health <br/><span className="text-emerald-500">Monitor.</span></h2>
+                                <p className="text-slate-500 text-xl italic font-medium max-w-2xl">Real-time validation of Gemini reasoning engine and Firebase data nodes.</p>
+                            </div>
+                            <Badge color="green" className="px-8 py-3 italic font-black text-sm">UPTIME: 99.998%</Badge>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                            <Card className="bg-slate-900 border-white/5 p-10 rounded-[3rem] flex flex-col gap-8 shadow-2xl">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-cyan-500/10 rounded-2xl flex items-center justify-center text-cyan-400"><Zap size={24} /></div>
-                                    <h4 className="font-black uppercase italic tracking-tight text-white">Gemini API</h4>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Avg Latency</span><span className="text-2xl font-black italic">4.2s</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Error Rate</span><span className="text-2xl font-black italic text-emerald-400">0.02%</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Grounding Hit</span><span className="text-2xl font-black italic">88%</span></div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+                            {/* GEMINI NODE */}
+                            <Card className="p-12 border-white/5 bg-slate-900/20 rounded-[4rem] relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none group-hover:scale-110 transition-transform"><Cpu size={200} /></div>
+                                <div className="relative z-10">
+                                    <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center mb-10 border border-emerald-500/20">
+                                        <Cpu className="text-emerald-500" size={40} />
+                                    </div>
+                                    <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Gemini-3 Pro</h3>
+                                    <p className="text-slate-500 text-sm font-medium italic mb-12">Core forensic reasoning engine. Processes multi-modal clinical audits with 24k thinking budget.</p>
+                                    
+                                    <div className="space-y-6">
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Status</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">Node_Responsive</span>
+                                        </div>
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Latency</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">1.2s avg</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </Card>
 
-                            <Card className="bg-slate-900 border-white/5 p-10 rounded-[3rem] flex flex-col gap-8 shadow-2xl">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-rose-500/10 rounded-2xl flex items-center justify-center text-rose-500"><Activity size={24} /></div>
-                                    <h4 className="font-black uppercase italic tracking-tight text-white">Conversion</h4>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Teaser-to-Lead</span><span className="text-2xl font-black italic">{Math.round(stats.conversionRate)}%</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Advocate Match</span><span className="text-2xl font-black italic text-teal-400">12.4%</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Recoup Success</span><span className="text-2xl font-black italic">--</span></div>
+                            {/* FIREBASE NODE */}
+                            <Card className="p-12 border-white/5 bg-slate-900/20 rounded-[4rem] relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none group-hover:scale-110 transition-transform"><Database size={200} /></div>
+                                <div className="relative z-10">
+                                    <div className="w-20 h-20 bg-cyan-500/10 rounded-3xl flex items-center justify-center mb-10 border border-cyan-500/20">
+                                        <Database className="text-cyan-400" size={40} />
+                                    </div>
+                                    <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Cloud Persistence</h3>
+                                    <p className="text-slate-500 text-sm font-medium italic mb-12">Distributed Firestore storage for anonymized clinical audits and advocate lead streams.</p>
+                                    
+                                    <div className="space-y-6">
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Connection</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">Encrypted_TLS_1.3</span>
+                                        </div>
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Sync Rate</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">Real-time Push</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </Card>
 
-                            <Card className="bg-slate-900 border-white/5 p-10 rounded-[3rem] flex flex-col gap-8 shadow-2xl">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-teal-500/10 rounded-2xl flex items-center justify-center text-teal-400"><ShieldCheck size={24} /></div>
-                                    <h4 className="font-black uppercase italic tracking-tight text-white">Compliance</h4>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">HIPAA Sanitization</span><span className="text-2xl font-black italic text-emerald-400">100%</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Data Scrub Ratio</span><span className="text-2xl font-black italic">72:1</span></div>
-                                    <div className="flex justify-between items-end"><span className="text-[9px] font-black uppercase text-slate-500 italic">Audit Log Integrity</span><span className="text-2xl font-black italic">High</span></div>
+                            {/* SECURITY AUDIT */}
+                            <Card className="p-12 border-white/5 bg-slate-900/20 rounded-[4rem] relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none group-hover:scale-110 transition-transform"><ShieldCheck size={200} /></div>
+                                <div className="relative z-10">
+                                    <div className="w-20 h-20 bg-rose-500/10 rounded-3xl flex items-center justify-center mb-10 border border-rose-500/20">
+                                        <ShieldCheck className="text-rose-500" size={40} />
+                                    </div>
+                                    <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">HIPAA Compliance</h3>
+                                    <p className="text-slate-500 text-sm font-medium italic mb-12">Automated PII/PHI sanitization protocols. Deterministic regex-based masking logic.</p>
+                                    
+                                    <div className="space-y-6">
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Sanitization</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">Active_Mandatory</span>
+                                        </div>
+                                        <div className="flex justify-between items-center bg-slate-950 p-6 rounded-2xl border border-white/5">
+                                            <span className="text-[10px] font-black uppercase italic text-slate-400">Audit Logs</span>
+                                            <span className="text-[11px] font-black uppercase text-emerald-500 tracking-widest italic">Worm_Persistence</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </Card>
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* BILL MODAL OVERLAY */}
+            {selectedBill && (
+                <div className="fixed inset-0 z-[200] bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-6 md:p-12 animate-fade-in overflow-y-auto">
+                    <Card className="max-w-4xl w-full bg-slate-900 border-white/10 p-12 md:p-20 rounded-[4rem] relative shadow-3xl h-auto my-auto">
+                        <button onClick={() => setSelectedBill(null)} className="absolute top-12 right-12 p-4 bg-white/5 rounded-2xl hover:bg-rose-500 transition-all text-white"><X size={32} /></button>
+                        
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-12 mb-16 border-b border-white/10 pb-16">
+                            <div className="space-y-4">
+                                <Badge color="red" className="px-6 py-2">Forensic Artifact</Badge>
+                                <h2 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter leading-none">{selectedBill.hospitalName}</h2>
+                                <p className="text-slate-500 text-lg font-black italic uppercase tracking-widest">Audit Ref: {selectedBill.billId}</p>
+                            </div>
+                            <div className="text-left md:text-right">
+                                <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-1 italic">Total Billed</span>
+                                <span className="text-6xl font-black italic">${selectedBill.totalBill.toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                            <div className="space-y-10">
+                                <div>
+                                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.5em] mb-6 italic">Forensic Summary</h4>
+                                    <p className="text-2xl font-black text-white italic leading-tight tracking-tight border-l-4 border-rose-500 pl-8 opacity-90">"{selectedBill.summary}"</p>
+                                </div>
+                                <div>
+                                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.5em] mb-6 italic">Recovery Potential</h4>
+                                    <p className="text-5xl font-black text-emerald-400 italic tracking-tighter">${(selectedBill.totalErrors + selectedBill.totalAid).toLocaleString()}</p>
+                                </div>
+                            </div>
+                            <div className="bg-slate-950 p-10 rounded-[3rem] border border-white/5 space-y-6">
+                                <h4 className="text-[10px] font-black text-slate-600 uppercase tracking-widest italic">Internal Reasoning Node</h4>
+                                <div className="space-y-4">
+                                    {selectedBill.errors.map((e, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-xs border-b border-white/5 pb-4">
+                                            <span className="text-slate-500 italic font-bold">{e.code} - {e.description.slice(0, 20)}...</span>
+                                            <span className="text-rose-500 font-black">${(e.amount - e.marketPrice).toLocaleString()}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-16 flex justify-end">
+                            <Button variant="teal" onClick={() => window.print()} className="h-20 px-16 text-xl">Print Forensic Evidence</Button>
+                        </div>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 };

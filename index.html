@@ -5,22 +5,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PocketProof | Forensic Medical Bill Audit & Advocacy</title>
-    <meta name="description" content="The revolutionary platform that uses AI to detect medical billing fraud and matches you with clinical advocates. Save up to 60% on your hospital bills.">
+    <meta name="description" content="Stop overpaying for healthcare. Our AI detects hospital billing errors in seconds.">
     
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://pocketproof.com/">
-    <meta property="og:title" content="PocketProof | Forensic Medical Bill Audit">
-    <meta property="og:description" content="Stop overpaying for healthcare. Our AI detects hospital billing errors in seconds.">
-    <meta property="og:image" content="https://pocketproof.com/og-image.jpg">
-
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://pocketproof.com/">
-    <meta property="twitter:title" content="PocketProof | Forensic Medical Bill Audit">
-    <meta property="twitter:description" content="Stop overpaying for healthcare. Our AI detects hospital billing errors in seconds.">
-    <meta property="twitter:image" content="https://pocketproof.com/og-image.jpg">
-
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
@@ -33,18 +19,18 @@
             },
             colors: {
               brand: {
-                primary: '#0F172A', // Navy
-                accent: '#06B6D4',  // Cyan
-                emerald: '#10B981', // Green
-                rose: '#EF4444',    // Red
-                bg: '#0F172A',      // Dark Mode default for landing
+                primary: '#0F172A',
+                accent: '#06B6D4',
+                emerald: '#10B981',
+                rose: '#EF4444',
+                bg: '#0F172A',
               }
             },
             animation: {
               'fade-in': 'fadeIn 0.5s ease-out forwards',
               'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
               'pulse-soft': 'pulseSoft 3s ease-in-out infinite',
-              'marquee': 'marquee 25s linear infinite',
+              'marquee': 'marquee 40s linear infinite',
             },
             keyframes: {
               fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
@@ -60,24 +46,39 @@
       }
     </script>
     <style>
+      html {
+        scroll-behavior: smooth;
+        -webkit-tap-highlight-color: transparent;
+      }
       body {
         background-color: #0F172A;
         color: #FFFFFF;
         font-feature-settings: "cv02", "cv03", "cv04", "cv11";
         -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      /* Hardware acceleration for smooth scrolling */
+      .glass-card, header, .animate-marquee, button {
+        backface-visibility: hidden;
+        perspective: 1000px;
+        transform: translate3d(0,0,0);
+        will-change: transform, opacity;
       }
       .glass-card { 
-        background: rgba(255, 255, 255, 0.03); 
-        backdrop-filter: blur(16px); 
+        background: rgba(15, 23, 42, 0.4); 
+        backdrop-filter: blur(12px); 
+        -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.05); 
       }
-      @media print {
-        .no-print { display: none !important; }
-        body { background: white !important; color: black !important; }
-      }
       ::selection {
-        background: #06B6D4;
+        background: rgba(6, 182, 212, 0.3);
         color: white;
+      }
+      /* Reduce repaints during scroll */
+      @media (prefers-reduced-motion: no-preference) {
+        .scroll-optimized {
+          transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease;
+        }
       }
     </style>
     <script type="importmap">

@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { AnalysisResult, GroundingSource } from "../types";
+import { AnalysisResult, BillError, AidMatch } from "../types";
 import { maskPHI } from "./integrationService";
 
 const auditSchema = {
@@ -10,7 +10,10 @@ const auditSchema = {
     totalBill: { type: Type.NUMBER },
     isSummaryBill: { type: Type.BOOLEAN },
     accuracyScore: { type: Type.INTEGER },
-    summary: { type: Type.STRING },
+    summary: { 
+      type: Type.STRING, 
+      description: "A neutral forensic summary of the audit. Cite specific billing patterns like 'unbundling' or 'upcoding'. Max 2 sentences." 
+    },
     priorityLevel: { type: Type.STRING, enum: ["High", "Medium", "Low"] },
     highlightError: {
       type: Type.OBJECT,
@@ -29,10 +32,13 @@ const auditSchema = {
           code: { type: Type.STRING },
           description: { type: Type.STRING },
           amount: { type: Type.NUMBER },
-          marketPrice: { type: Type.NUMBER, description: "National Fair Market Price for this service (Medicare + 40%)." },
+          marketPrice: { type: Type.NUMBER },
           reason: { type: Type.STRING },
-          plainEnglishExplanation: { type: Type.STRING },
-          regulatoryCitation: { type: Type.STRING },
+          plainEnglishExplanation: { 
+            type: Type.STRING, 
+            description: "Explain the clinical discrepancy in simple terms for the patient." 
+          },
+          regulatoryCitation: { type: Type.STRING, description: "Specific CMS or Federal Law citation." },
           confidence: { type: Type.NUMBER },
         },
         required: ["code", "amount", "marketPrice", "regulatoryCitation", "description", "reason", "plainEnglishExplanation"]
@@ -51,7 +57,7 @@ const auditSchema = {
         },
       },
     },
-    disputeLetterPreview: { type: Type.STRING }
+    disputeLetterPreview: { type: Type.STRING, description: "A legally robust dispute letter intended for the hospital's billing director." }
   },
   required: ["totalBill", "errors", "hospitalName", "isSummaryBill", "accuracyScore", "summary", "priorityLevel", "disputeLetterPreview"],
 };
@@ -64,53 +70,58 @@ const sanitizeJsonResponse = (text: string): string => {
   return cleaned;
 };
 
-export const analyzeBillWithGemini = async (input: string | { mimeType: string, data: string }): Promise<AnalysisResult> => {
+export const analyzeBillWithGemini = async (input: string | { mimeType: string, data: string }, zipCode?: string): Promise<AnalysisResult> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  // STEP 0: EXTRACTION & MASKING
   let rawText = "";
   if (typeof input === 'string') {
     rawText = input;
   } else {
-    const parts: any[] = [{ inlineData: { mimeType: input.mimeType, data: input.data } }];
+    // Stage 1: High Fidelity OCR with Flash
     const ocrResponse = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: { parts: [...parts, { text: "Extract all clinical line items, codes, and prices exactly. DO NOT ANALYZE YET." }] },
+      contents: { 
+        parts: [
+          { inlineData: { mimeType: input.mimeType, data: input.data } }, 
+          { text: "Perform high-fidelity OCR. Extract every line item, medical code (CPT/HCPCS/ICD-10), and decimal amount with absolute precision. Preserve the structure of the billing statement." }
+        ] 
+      },
     });
     rawText = ocrResponse.text || "";
   }
   
+  // Stage 2: Forensic Analysis with Pro
   const maskedInputText = maskPHI(rawText);
 
-  // STEP 1: FORENSIC AUDIT WITH PRICE TRANSPARENCY
   try {
     const auditResponse: GenerateContentResponse = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
-      contents: `Perform a Forensic Medical Audit on this data: ${maskedInputText}.
+      contents: `Perform a Forensic Clinical Audit on this clinical data: ${maskedInputText}. 
+      Location Context (ZIP): ${zipCode || "General US"}.
       
-      CRITICAL INSTRUCTIONS:
-      1. USE GOOGLE SEARCH to find National Fair Market Prices (FMP) for every detected code.
-      2. Set 'priorityLevel' to 'High' if savings > $5,000.
-      3. Identify potential Charity Care aid programs for the hospital mentioned.
-      4. Ensure the dispute letter is a DRAFT ONLY.
-      5. DO NOT output patient names.`,
+      CORE PROTOCOL:
+      1. Validate CPT/HCPCS codes against CMS Fair Market Rates.
+      2. Identify violations: Unbundling (fragmented billing), Upcoding (inflated service levels), or Duplicate Charges.
+      3. Charity Matching: Check for 501(r) Financial Assistance eligibility if the provider is non-profit.
+      4. Neutral Reporting: If the bill is accurate, confirm it. If errors exist, cite the specific CMS or NCCI regulatory guideline.`,
       config: {
-        systemInstruction: "You are a world-class clinical auditor and patient advocate. Bridge the knowledge gap between hospital bills and market reality.",
-        tools: [{ googleSearch: {} }],
+        systemInstruction: "You are the PocketProof Forensic Compliance Engine. You are a neutral third-party auditor. You interpret medical billing laws and coding standards with mathematical precision. You provide clinical facts, not opinions. You must always cite relevant CMS guidelines or Federal laws like the No Surprises Act.",
         responseMimeType: "application/json",
         responseSchema: auditSchema,
+        thinkingConfig: { thinkingBudget: 24000 }
       },
     });
 
     const result = JSON.parse(sanitizeJsonResponse(auditResponse.text || "{}"));
 
     return {
-      hospitalName: result.hospitalName || "Facility",
+      billId: `bill_${Date.now()}`,
+      hospitalName: result.hospitalName || "Identified Provider",
       totalBill: result.totalBill || 0,
-      totalErrors: result.errors?.reduce((s: number, e: any) => s + (e.amount - e.marketPrice), 0) || 0,
+      totalErrors: result.errors?.reduce((s: number, e: any) => s + (Math.max(0, e.amount - e.marketPrice)), 0) || 0,
       totalAid: result.aidMatches?.reduce((s: number, a: any) => s + (a.amount || 0), 0) || 0,
-      errors: result.errors || [],
-      aidMatches: result.aidMatches || [],
+      errors: (result.errors || []).map((e: any, i: number) => ({ ...e, id: `err_${i}` })),
+      aidMatches: (result.aidMatches || []).map((a: any, i: number) => ({ ...a, id: `aid_${i}` })),
       priorityLevel: result.priorityLevel || "Medium",
       groundingSources: [],
       summary: result.summary,
@@ -118,9 +129,11 @@ export const analyzeBillWithGemini = async (input: string | { mimeType: string, 
       isSummaryBill: !!result.isSummaryBill,
       accuracyScore: result.accuracyScore,
       disputeLetterPreview: result.disputeLetterPreview,
+      zipCode: zipCode,
+      updatedAt: new Date().toISOString()
     };
   } catch (error: any) {
-    console.error("Audit Failure:", error);
-    throw new Error(`Forensic Audit Interrupted: ${error.message}`);
+    console.error("Forensic node failure:", error);
+    throw new Error(`Forensic node is currently re-syncing. Please try again in 30 seconds.`);
   }
 };

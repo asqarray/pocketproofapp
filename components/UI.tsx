@@ -148,12 +148,24 @@ export const Button = ({
   );
 };
 
-// Fixed Card component to accept an optional onClick handler and pass it to the root div
-export const Card = ({ children, className = '', onClick, key }: { children?: React.ReactNode; className?: string; onClick?: React.MouseEventHandler<HTMLDivElement>; key?: React.Key }) => (
-  <div key={key} onClick={onClick} className={`bg-white border border-slate-200 rounded-[3rem] md:rounded-[4rem] p-8 md:p-16 shadow-[0_32px_80px_rgba(0,0,0,0.03)] transition-all duration-700 hover:shadow-[0_48px_120px_rgba(0,0,0,0.05)] ${className}`}>
-    {children}
-  </div>
-);
+// Fixed: Added optional 'key' to Card props to prevent TypeScript errors in mapped lists.
+export const Card = ({ children, className = '', onClick }: { children?: React.ReactNode; className?: string; onClick?: React.MouseEventHandler<HTMLDivElement>; key?: React.Key }) => {
+  const hasBg = className.includes('bg-');
+  const hasBorder = className.includes('border-');
+  return (
+    <div 
+      onClick={onClick} 
+      className={`
+        ${hasBg ? '' : 'bg-slate-900/40 backdrop-blur-3xl'} 
+        ${hasBorder ? '' : 'border border-white/10'} 
+        rounded-[3rem] md:rounded-[4rem] p-8 md:p-16 transition-all duration-700 hover:bg-slate-900/60 hover:border-white/20 hover:shadow-[0_48px_120px_rgba(0,0,0,0.3)] 
+        ${className}
+      `}
+    >
+      {children}
+    </div>
+  );
+};
 
 export const Badge = ({ children, color = 'gray', className = '' }: { children?: React.ReactNode; color?: 'red' | 'amber' | 'white' | 'gray' | 'green' | 'teal' | 'purple' | 'navy'; className?: string }) => {
   const colors = {
